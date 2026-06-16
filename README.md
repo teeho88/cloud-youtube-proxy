@@ -1,8 +1,32 @@
-# Cloud YouTube MJPEG Proxy
+# Cloud YouTube Proxy (RGB332 + PCM)
 
-Proxy nay chay tren VPS/cloud. ESP32-S3 khong mo YouTube truc tiep; no nhan MJPEG nhe tu proxy.
+Proxy chay tren VPS/cloud. No convert YouTube -> raw RGB332/RGB565 320x180 @ 12fps
+va PCM 16 kHz mono, **giong het chat luong PC stream** (`tools/pc_mjpeg_stream_server.py`).
+ESP32-S3 khong mo YouTube truc tiep; no doc raw frame + PCM tu proxy.
 
 Luon dat `PROXY_TOKEN` khi dua proxy len internet.
+
+## Luong su dung
+
+1. LLM/firmware goi `GET /search?q=...` -> JSON danh sach video (title + thumbnail).
+2. Nguoi dung chon 1 video -> firmware goi `GET /control?source=<youtube_url>`.
+3. ESP32 doc `GET /stream.rgb332` va `GET /audio.pcm` (theo source hien tai).
+
+`/stream.*` va `/audio.pcm` cung nhan `?url=<youtube_url>` de override truc tiep.
+
+## Endpoints
+
+| Path | Mo ta |
+|------|-------|
+| `GET /search?q=QUERY&n=8` | Tim YouTube, tra JSON `{results:[{id,title,url,thumbnail,duration,uploader}]}` |
+| `GET /control?source=URL` | Dat video hien tai (fps/width/quality optional). Khong source -> tra trang test |
+| `GET /stream.rgb332` | Raw RGB332 320x180, headers `X-Frame-*` (giong PC server) |
+| `GET /stream.rgb565` | Raw RGB565 big-endian 320x180 |
+| `GET /stream.mjpg` | MJPEG multipart (fallback/test trinh duyet) |
+| `GET /audio.pcm` | PCM s16le mono 16 kHz, seek dong bo voi video |
+| `GET /health` | `ok` |
+
+Tat ca (tru `/health`) yeu cau `token=` hoac header `X-Proxy-Token` neu da bat `PROXY_TOKEN`.
 
 ## Chay local bang Docker
 
@@ -12,13 +36,7 @@ docker build -t esp32-youtube-proxy .
 docker run --rm -p 8088:8088 -e PROXY_TOKEN=doi-token-nay esp32-youtube-proxy
 ```
 
-Mo:
-
-```text
-http://localhost:8088
-```
-
-Paste link YouTube, nhap token, roi copy URL tao ra cho firmware `self.video.play_stream`.
+Mo `http://localhost:8088/control`, paste link YouTube + token, bam "Set current source".
 
 ## Chay tren VPS Linux
 
@@ -31,34 +49,29 @@ sudo docker build -t esp32-youtube-proxy .
 sudo docker run -d --restart unless-stopped --name esp32-youtube-proxy \
   -p 8088:8088 \
   -e PROXY_TOKEN=doi-token-nay \
-  -e DEFAULT_FPS=5 \
-  -e DEFAULT_WIDTH=240 \
   esp32-youtube-proxy
 ```
 
-URL trang tao stream:
+ESP32 URL (mac dinh, khong can query neu da set source qua /control):
 
 ```text
-http://IP_VPS:8088
+http://IP_VPS:8088/stream.rgb332?token=doi-token-nay
+http://IP_VPS:8088/audio.pcm?token=doi-token-nay
 ```
 
-URL cho ESP32 co dang:
-
-```text
-http://IP_VPS:8088/stream?url=YOUTUBE_URL_DA_ENCODE&fps=5&width=240&quality=8&token=doi-token-nay
-```
-
-## Cau hinh
+## Cau hinh (env)
 
 - `PORT`: cong HTTP, mac dinh `8088`.
-- `PROXY_TOKEN`: khoa bao ve proxy. Nen bat.
-- `DEFAULT_FPS`: mac dinh `5`.
-- `DEFAULT_WIDTH`: mac dinh `240`.
-- `DEFAULT_QUALITY`: mac dinh `8`. Gia tri thap hon la chat luong JPEG cao hon.
+- `PROXY_TOKEN`: khoa bao ve proxy. Nen bat khi public.
+- `DEFAULT_FPS`: mac dinh `12` (khop firmware).
+- `DEFAULT_WIDTH`: mac dinh `320` (chieu cao co dinh 180).
+- `DEFAULT_QUALITY`: chat luong JPEG cho `/stream.mjpg`, mac dinh `16` (thap = dep hon).
+- `SEARCH_RESULTS`: so ket qua `/search` mac dinh, mac dinh `8`.
 
 ## Luu y
 
-- Cloud/VPS can CPU du de ffmpeg transcode realtime.
-- ESP32-S3 nen dung `fps=3..8`, `width=160..240`.
-- Neu stream bi dung, thu giam `fps`, giam `width`, hoac tang chat luong so `quality` len `10..16`.
-- Proxy nay chi nen dung cho thu nghiem ca nhan va cac noi dung ban co quyen truy cap.
+- VPS can CPU du de ffmpeg transcode realtime (320x180@12fps rgb332 + audio 16k la nhe).
+- RGB332 ~57.6 KB/frame, 12fps ~5.5 Mbps; can duong truyen VPS->ESP32 du bang thong.
+- Discovery UDP (LAN) khong dung cho cloud; firmware phai tro base URL toi IP VPS.
+- Proxy nay chi nen dung cho thu nghiem ca nhan va noi dung ban co quyen truy cap.
+```
