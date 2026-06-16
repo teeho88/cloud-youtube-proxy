@@ -23,7 +23,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
-DEFAULT_FPS = int(os.environ.get("DEFAULT_FPS", "12"))
+DEFAULT_FPS = int(os.environ.get("DEFAULT_FPS", "10"))
 DEFAULT_WIDTH = int(os.environ.get("DEFAULT_WIDTH", "320"))
 DEFAULT_QUALITY = int(os.environ.get("DEFAULT_QUALITY", "16"))
 PROXY_TOKEN = os.environ.get("PROXY_TOKEN", "")
@@ -415,10 +415,12 @@ class CloudYoutubeProxyHandler(BaseHTTPRequestHandler):
         if "youtube.com/" not in source and "youtu.be/" not in source:
             # Already a direct media URL or file path.
             return source
+        # Smallest available rendition: the proxy downscales to 320x180 anyway,
+        # so the lowest-quality source minimises VPS download + ffmpeg CPU.
         if audio:
-            fmt = "best[height<=360][acodec!=none][vcodec!=none]/best[height<=360]/best"
+            fmt = "worstaudio/worst"
         else:
-            fmt = "best[height<=360][ext=mp4]/bestvideo[height<=360][ext=mp4]/best[height<=360]/best"
+            fmt = "worstvideo/worst"
         result = subprocess.run(
             [YTDLP_BIN, "--no-playlist", "--force-ipv4", "-g", "-f", fmt, source],
             check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30,
