@@ -415,15 +415,24 @@ class CloudYoutubeProxyHandler(BaseHTTPRequestHandler):
         if "youtube.com/" not in source and "youtu.be/" not in source:
             # Already a direct media URL or file path.
             return source
-        # Smallest available rendition: the proxy downscales to 320x180 anyway,
-        # so the lowest-quality source minimises VPS download + ffmpeg CPU.
+        # Prefer progressive itag 18 (360p H.264+AAC): it resolves without a JS
+        # runtime (the VPS has none) and the proxy re-encodes to 320x180 anyway,
+        # so source quality only affects VPS download/CPU, not the ESP32 stream.
+        # DASH-only 'worstvideo'/'bestaudio' often need JS n-sig descrambling and
+        # fail on the server, causing the 502.
         if audio:
-            fmt = "worstaudio/worst"
+            fmt = "bestaudio[ext=m4a]/18/best[height<=360]/best"
         else:
-            fmt = "worstvideo/worst"
+            fmt = "18/best[height<=360][ext=mp4]/best[height<=360]/best"
+        # player_client android/tv are the most server-friendly (least likely to
+        # hit "confirm you're not a bot" from a datacenter IP) and avoid JS.
+        cmd = [
+            YTDLP_BIN, "--no-playlist", "--force-ipv4",
+            "--extractor-args", "youtube:player_client=android,tv,web",
+            "-g", "-f", fmt, source,
+        ]
         result = subprocess.run(
-            [YTDLP_BIN, "--no-playlist", "--force-ipv4", "-g", "-f", fmt, source],
-            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30,
+            cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45,
         )
         urls = [line.strip() for line in result.stdout.decode().splitlines() if line.strip()]
         if not urls:
