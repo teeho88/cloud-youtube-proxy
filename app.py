@@ -341,7 +341,7 @@ class CloudYoutubeProxyHandler(BaseHTTPRequestHandler):
             "-vf", (f"fps={fps},scale={width}:{FRAME_HEIGHT}:force_original_aspect_ratio=decrease:"
                     f"flags=lanczos,pad={width}:{FRAME_HEIGHT}:(ow-iw)/2:(oh-ih)/2,format=yuvj420p"),
             "-c:v", "mjpeg", "-q:v", str(quality),
-            "-f", "mpjpeg", "-boundary", "frame", "pipe:1",
+            "-f", "mpjpeg", "pipe:1",
         ]
         process = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         try:
