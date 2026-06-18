@@ -440,7 +440,18 @@ class CloudYoutubeProxyHandler(BaseHTTPRequestHandler):
         if audio:
             fmt = "bestaudio[ext=m4a]/18/best[height<=360]/best"
         else:
-            fmt = "18/best[height<=360][ext=mp4]/best[height<=360]/best"
+            # The e2-micro software-decodes the SOURCE at its native frame rate
+            # (decode happens before the fps filter), so source resolution — not
+            # output fps — dominates CPU. 144p H.264 decodes several times cheaper
+            # than 360p and is the difference between holding real time and the
+            # video falling progressively behind the audio. The android client
+            # (requested below) usually returns pre-signed URLs, so these low-res
+            # video-only DASH formats resolve without a JS runtime. vcodec^=avc1
+            # keeps it H.264 (VP9/AV1 would decode far slower in software). Fall
+            # back to progressive itag 18 if no low-res H.264 is available.
+            fmt = ("bestvideo[height<=144][vcodec^=avc1]/"
+                   "bestvideo[height<=240][vcodec^=avc1]/"
+                   "18/best[height<=360][ext=mp4]/best[height<=360]/best")
         # player_client android/tv are the most server-friendly (least likely to
         # hit "confirm you're not a bot" from a datacenter IP) and avoid JS.
         cmd = [
