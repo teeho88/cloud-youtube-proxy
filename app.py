@@ -344,7 +344,11 @@ class CloudYoutubeProxyHandler(BaseHTTPRequestHandler):
             FFMPEG_BIN, "-hide_banner", "-loglevel", "error",
             "-fflags", "nobuffer", "-flags", "low_delay",
             "-probesize", "1000000", "-analyzeduration", "1000000",
-            "-re", "-i", media_url,
+            # -readrate 2.0 (instead of -re = readrate 1.0) lets ffmpeg run up to
+            # 2x real time so it can CATCH UP after a slow scene; the ESP32 paces
+            # the real rate by holding frames (TCP back-pressure) once it is in
+            # sync, so this only matters while it is reclaiming lag.
+            "-readrate", "2.0", "-i", media_url,
             "-an",
             "-vf", (f"fps={fps},scale={width}:{FRAME_HEIGHT}:force_original_aspect_ratio=decrease:"
                     f"flags=fast_bilinear,pad={width}:{FRAME_HEIGHT}:(ow-iw)/2:(oh-ih)/2,format=yuvj420p"),
