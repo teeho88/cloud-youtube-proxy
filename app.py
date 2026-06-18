@@ -334,27 +334,44 @@ class CloudYoutubeProxyHandler(BaseHTTPRequestHandler):
         self.send_header("Connection", "close")
         self.end_headers()
 
+        # The e2-micro vCPU cannot sustain lanczos scaling + MJPEG encode at the
+        # target fps, so video output falls behind real time and the gap to the
+        # (real-time) audio grows without bound. fast_bilinear is a fraction of
+        # the cost and keeps ffmpeg comfortably faster than real time, so -re can
+        # actually pace it. The low-delay / small-probe input flags also cut the
+        # several-second first-frame latency that left audio starting way ahead.
         ffmpeg_cmd = [
             FFMPEG_BIN, "-hide_banner", "-loglevel", "error",
+            "-fflags", "nobuffer", "-flags", "low_delay",
+            "-probesize", "1000000", "-analyzeduration", "1000000",
             "-re", "-i", media_url,
             "-an",
             "-vf", (f"fps={fps},scale={width}:{FRAME_HEIGHT}:force_original_aspect_ratio=decrease:"
-                    f"flags=lanczos,pad={width}:{FRAME_HEIGHT}:(ow-iw)/2:(oh-ih)/2,format=yuvj420p"),
+                    f"flags=fast_bilinear,pad={width}:{FRAME_HEIGHT}:(ow-iw)/2:(oh-ih)/2,format=yuvj420p"),
             "-c:v", "mjpeg", "-q:v", str(quality),
             "-f", "mpjpeg", "pipe:1",
         ]
         process = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        # Mark the session start at the first byte out of ffmpeg so a later/re-
+        # enabled audio client can seek to the video's current position (audio
+        # handler uses video_position()); previously only the raw handler did
+        # this, leaving the MJPEG path with no A/V sync anchor at all.
+        marked = False
         try:
             while True:
                 chunk = process.stdout.read(4096)
                 if not chunk:
                     break
+                if not marked:
+                    self.server.state.mark_video_started()
+                    marked = True
                 self.wfile.write(chunk)
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
             pass
         finally:
             self._reap(process, "mjpeg")
+            self.server.state.clear_video_started()
 
     def _handle_audio(self, params):
         if not self._authorized(params):
